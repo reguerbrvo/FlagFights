@@ -1,0 +1,18 @@
+[
+  {"name":"Argentina","isoCode":"AR","flagEmoji":"🇦🇷"},
+  {"name":"Brasil","isoCode":"BR","flagEmoji":"🇧🇷"},
+  {"name":"Canadá","isoCode":"CA","flagEmoji":"🇨🇦"},
+  {"name":"Chile","isoCode":"CL","flagEmoji":"🇨🇱"},
+  {"name":"Colombia","isoCode":"CO","flagEmoji":"🇨🇴"},
+  {"name":"España","isoCode":"ES","flagEmoji":"🇪🇸"},
+  {"name":"Estados Unidos","isoCode":"US","flagEmoji":"🇺🇸"},
+  {"name":"Francia","isoCode":"FR","flagEmoji":"🇫🇷"},
+  {"name":"Alemania","isoCode":"DE","flagEmoji":"🇩🇪"},
+  {"name":"Italia","isoCode":"IT","flagEmoji":"🇮🇹"},
+  {"name":"Japón","isoCode":"JP","flagEmoji":"🇯🇵"},
+  {"name":"México","isoCode":"MX","flagEmoji":"🇲🇽"},
+  {"name":"Perú","isoCode":"PE","flagEmoji":"🇵🇪"},
+  {"name":"Portugal","isoCode":"PT","flagEmoji":"🇵🇹"},
+  {"name":"Reino Unido","isoCode":"GB","flagEmoji":"🇬🇧"},
+  {"name":"Corea del Sur","isoCode":"KR","flagEmoji":"🇰🇷"}
+]
