@@ -46,6 +46,12 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.flagfights.domain.ConnectionStatus
+import com.flagfights.domain.CountryFlag
+import com.flagfights.domain.GameEngine
+import com.flagfights.domain.MatchStatus
+import com.flagfights.domain.PlayerState
+import com.flagfights.domain.RoundResolution
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -170,8 +176,8 @@ private fun RoomScreen(
     onBackHome: () -> Unit
 ) {
     val players = listOf(
-        PlayerStatus(name = "Tú", isConnected = true, isReady = true),
-        PlayerStatus(name = "Rival", isConnected = true, isReady = false)
+        PlayerState(playerId = "Tú", connectionStatus = ConnectionStatus.CONNECTED),
+        PlayerState(playerId = "Rival", connectionStatus = ConnectionStatus.DISCONNECTED)
     )
 
     ScreenContainer(title = "Sala de espera", subtitle = "Comparte el código y confirma el estado de ambos jugadores.") {
@@ -181,7 +187,6 @@ private fun RoomScreen(
                     text = roomCode,
                     style = MaterialTheme.typography.displaySmall,
                     fontWeight = FontWeight.Bold,
-                    letterSpacing = androidx.compose.ui.unit.TextUnit.Unspecified,
                     modifier = Modifier.fillMaxWidth(),
                     textAlign = TextAlign.Center
                 )
@@ -213,23 +218,17 @@ private fun RoomScreen(
 
 @Composable
 private fun GameScreen(onFinish: (Boolean) -> Unit) {
-    val options = remember {
-        listOf(
-            FlagOption("Argentina", "🇦🇷"),
-            FlagOption("Japón", "🇯🇵"),
-            FlagOption("Italia", "🇮🇹"),
-            FlagOption("Canadá", "🇨🇦")
-        )
-    }
-    var selectedCountry by remember { mutableStateOf<String?>(null) }
-    val playerLives = if (selectedCountry == "Japón") 3 else 2
-    val opponentLives = if (selectedCountry == null) 3 else 1
+    val engine = remember { GameEngine() }
+    var matchState by remember { mutableStateOf(engine.createMatch(listOf("Tú", "Rival"))) }
+    val currentRound = matchState.currentRound
+    val playerState = matchState.players.first { it.playerId == "Tú" }
+    val opponentState = matchState.players.first { it.playerId == "Rival" }
 
     ScreenContainer(title = "Partida", subtitle = "Selecciona la bandera correcta antes de quedarte sin vidas.") {
         Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
             InfoCard(title = "País objetivo") {
                 Text(
-                    text = "Japón",
+                    text = currentRound.targetCountry.countryName,
                     style = MaterialTheme.typography.headlineMedium,
                     fontWeight = FontWeight.Bold
                 )
@@ -238,16 +237,20 @@ private fun GameScreen(onFinish: (Boolean) -> Unit) {
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                LivesCard(name = "Tú", lives = playerLives, modifier = Modifier.weight(1f))
-                LivesCard(name = "Rival", lives = opponentLives, modifier = Modifier.weight(1f))
+                LivesCard(name = playerState.playerId, lives = playerState.livesRemaining, modifier = Modifier.weight(1f))
+                LivesCard(name = opponentState.playerId, lives = opponentState.livesRemaining, modifier = Modifier.weight(1f))
             }
             Text(
-                text = "Elige una bandera",
+                text = when (currentRound.resolution) {
+                    RoundResolution.PENDING -> "Elige una bandera"
+                    RoundResolution.CORRECT -> "¡Respuesta correcta!"
+                    RoundResolution.INCORRECT -> "Respuesta incorrecta, perdiste una vida."
+                },
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold
             )
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                options.chunked(2).forEach { rowOptions ->
+                currentRound.flagOptions.chunked(2).forEach { rowOptions ->
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -255,9 +258,12 @@ private fun GameScreen(onFinish: (Boolean) -> Unit) {
                         rowOptions.forEach { option ->
                             FlagOptionCard(
                                 option = option,
-                                isSelected = selectedCountry == option.country,
+                                isSelected = currentRound.selectedAnswer?.countryName == option.countryName,
                                 modifier = Modifier.weight(1f),
-                                onClick = { selectedCountry = option.country }
+                                enabled = currentRound.resolution == RoundResolution.PENDING,
+                                onClick = {
+                                    matchState = engine.submitAnswer(matchState, playerState.playerId, option.countryName)
+                                }
                             )
                         }
                         repeat(2 - rowOptions.size) {
@@ -267,10 +273,17 @@ private fun GameScreen(onFinish: (Boolean) -> Unit) {
                 }
             }
             Button(
-                onClick = { onFinish(selectedCountry == "Japón") },
-                modifier = Modifier.fillMaxWidth()
+                onClick = {
+                    if (matchState.status == MatchStatus.FINISHED) {
+                        onFinish(matchState.winner == playerState.playerId)
+                    } else {
+                        matchState = engine.advanceRound(matchState)
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+                enabled = currentRound.resolution != RoundResolution.PENDING
             ) {
-                Text("Finalizar ronda")
+                Text(if (matchState.status == MatchStatus.FINISHED) "Ver resultado" else "Siguiente ronda")
             }
         }
     }
@@ -283,9 +296,9 @@ private fun ResultScreen(
 ) {
     val title = if (playerWon) "¡Ganaste!" else "Has perdido"
     val description = if (playerWon) {
-        "Identificaste la bandera correcta y conservaste más vidas que tu rival."
+        "Sobreviviste a la partida acertando más banderas que tu rival."
     } else {
-        "Tu rival mantuvo más vidas. Vuelve al inicio para crear otra partida."
+        "Te quedaste sin vidas. Vuelve al inicio para crear otra partida."
     }
 
     ScreenContainer(title = "Resultado", subtitle = "Resumen final de la partida.") {
@@ -367,21 +380,21 @@ private fun InfoCard(
 }
 
 @Composable
-private fun PlayerStatusRow(player: PlayerStatus) {
+private fun PlayerStatusRow(player: PlayerState) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        Text(text = player.name, style = MaterialTheme.typography.titleMedium)
+        Text(text = player.playerId, style = MaterialTheme.typography.titleMedium)
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
             StatusChip(
-                label = if (player.isConnected) "Conectado" else "Desconectado",
-                active = player.isConnected
+                label = if (player.connectionStatus == ConnectionStatus.CONNECTED) "Conectado" else "Desconectado",
+                active = player.connectionStatus == ConnectionStatus.CONNECTED
             )
             StatusChip(
-                label = if (player.isReady) "Listo" else "Esperando",
-                active = player.isReady
+                label = "${player.livesRemaining} vidas",
+                active = player.livesRemaining > 0
             )
         }
     }
@@ -418,7 +431,7 @@ private fun LivesCard(name: String, lives: Int, modifier: Modifier = Modifier) {
         ) {
             Text(text = name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                repeat(3) { index ->
+                repeat(PlayerState.INITIAL_LIVES) { index ->
                     Text(
                         text = if (index < lives) "❤️" else "🖤",
                         style = MaterialTheme.typography.headlineSmall
@@ -431,9 +444,10 @@ private fun LivesCard(name: String, lives: Int, modifier: Modifier = Modifier) {
 
 @Composable
 private fun FlagOptionCard(
-    option: FlagOption,
+    option: CountryFlag,
     isSelected: Boolean,
     modifier: Modifier = Modifier,
+    enabled: Boolean = true,
     onClick: () -> Unit
 ) {
     Card(
@@ -443,7 +457,7 @@ private fun FlagOptionCard(
                 color = if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent,
                 shape = RoundedCornerShape(16.dp)
             )
-            .clickable(onClick = onClick),
+            .clickable(enabled = enabled, onClick = onClick),
         colors = CardDefaults.cardColors(
             containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
         )
@@ -455,22 +469,11 @@ private fun FlagOptionCard(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Text(text = option.emoji, style = MaterialTheme.typography.displaySmall)
-            Text(text = option.country, style = MaterialTheme.typography.titleMedium)
+            Text(text = option.flagEmoji, style = MaterialTheme.typography.displaySmall)
+            Text(text = option.countryName, style = MaterialTheme.typography.titleMedium)
         }
     }
 }
-
-private data class PlayerStatus(
-    val name: String,
-    val isConnected: Boolean,
-    val isReady: Boolean
-)
-
-private data class FlagOption(
-    val country: String,
-    val emoji: String
-)
 
 private sealed class Screen(val route: String) {
     data object Home : Screen("home")
