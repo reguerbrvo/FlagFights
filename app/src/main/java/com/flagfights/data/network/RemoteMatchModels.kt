@@ -34,7 +34,7 @@ data class RemotePlayer(
     )
 
     fun toPlayerState(): PlayerState = PlayerState(
-        playerId = displayName,
+        playerId = playerId,
         livesRemaining = livesRemaining,
         connectionStatus = if (connected) ConnectionStatus.CONNECTED else ConnectionStatus.DISCONNECTED
     )
@@ -63,7 +63,13 @@ data class RemoteRound(
         "number" to number,
         "targetCountry" to targetCountry,
         "targetFlagEmoji" to targetFlagEmoji,
-        "options" to options.map { mapOf("countryName" to it.countryName, "flagEmoji" to it.flagEmoji) },
+        "options" to options.map {
+            mapOf(
+                "countryName" to it.countryName,
+                "isoCode" to it.isoCode,
+                "flagEmoji" to it.flagEmoji
+            )
+        },
         "resolutionByPlayerId" to resolutionByPlayerId,
         "answersByPlayerId" to answersByPlayerId
     )
@@ -76,7 +82,12 @@ data class RemoteRound(
             RoundResolution.INCORRECT.name -> RoundResolution.INCORRECT
             else -> RoundResolution.PENDING
         }
-        val target = CountryFlag(targetCountry, targetFlagEmoji)
+        val target = options.firstOrNull { it.countryName == targetCountry }
+            ?: CountryFlag(
+                countryName = targetCountry,
+                isoCode = "",
+                flagEmoji = targetFlagEmoji
+            )
         return Round(
             targetCountry = target,
             flagOptions = options,
@@ -95,6 +106,7 @@ data class RemoteRound(
                 (option as? Map<*, *>)?.let {
                     CountryFlag(
                         countryName = it["countryName"] as? String ?: return@mapNotNull null,
+                        isoCode = it["isoCode"] as? String ?: "",
                         flagEmoji = it["flagEmoji"] as? String ?: return@mapNotNull null
                     )
                 }

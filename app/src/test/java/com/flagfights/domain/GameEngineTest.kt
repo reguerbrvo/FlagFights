@@ -63,6 +63,20 @@ class GameEngineTest {
         assertEquals(MatchEndReason.ELIMINATION, updatedMatch.endReason)
     }
 
+
+    @Test
+    fun submitAnswer_clearsPreviousEndReasonWhenMatchContinues() {
+        val match = engine.createMatch(listOf("player-1", "player-2")).copy(endReason = MatchEndReason.OPPONENT_DISCONNECTED)
+        val wrongAnswer = match.currentRound.flagOptions.first {
+            it.isoCode != match.currentRound.correctAnswer.isoCode
+        }
+
+        val updatedMatch = engine.submitAnswer(match, "player-1", wrongAnswer.countryName)
+
+        assertEquals(MatchStatus.IN_PROGRESS, updatedMatch.status)
+        assertEquals(null, updatedMatch.endReason)
+    }
+
     @Test
     fun updateHeartbeat_marksPlayerConnectedAndRefreshesTimestamp() {
         val baseMatch = engine.createMatch(listOf("player-1", "player-2"), createdAtMillis = 1_000L)
