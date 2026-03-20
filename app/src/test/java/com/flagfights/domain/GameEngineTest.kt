@@ -1,5 +1,6 @@
 package com.flagfights.domain
 
+import com.flagfights.data.CountryRepository
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -22,7 +23,7 @@ class GameEngineTest {
         val round = engine.createRound()
 
         assertEquals(4, round.flagOptions.size)
-        assertEquals(4, round.flagOptions.map { it.countryName }.toSet().size)
+        assertEquals(4, round.flagOptions.map { it.isoCode }.toSet().size)
         assertTrue(round.flagOptions.contains(round.correctAnswer))
         assertEquals(round.targetCountry, round.correctAnswer)
     }
@@ -31,7 +32,7 @@ class GameEngineTest {
     fun submitAnswer_removesOneLifeOnWrongAnswer() {
         val match = engine.createMatch(listOf("player-1", "player-2"))
         val wrongAnswer = match.currentRound.flagOptions.first {
-            it.countryName != match.currentRound.correctAnswer.countryName
+            it.isoCode != match.currentRound.correctAnswer.isoCode
         }
 
         val updatedMatch = engine.submitAnswer(match, "player-1", wrongAnswer.countryName)
@@ -50,7 +51,7 @@ class GameEngineTest {
             }
         )
         val wrongAnswer = weakenedMatch.currentRound.flagOptions.first {
-            it.countryName != weakenedMatch.currentRound.correctAnswer.countryName
+            it.isoCode != weakenedMatch.currentRound.correctAnswer.isoCode
         }
 
         val updatedMatch = engine.submitAnswer(weakenedMatch, "player-1", wrongAnswer.countryName)
@@ -63,10 +64,32 @@ class GameEngineTest {
     @Test
     fun advanceRound_avoidsRecentCountryWhenPossible() {
         val match = engine.createMatch(listOf("player-1", "player-2"))
-        val recentCountry = match.currentRound.targetCountry.countryName
+        val recentCountry = match.currentRound.targetCountry.isoCode
         val progressed = engine.advanceRound(match.copy(recentCountries = listOf(recentCountry)))
 
-        assertNotEquals(recentCountry, progressed.currentRound.targetCountry.countryName)
+        assertNotEquals(recentCountry, progressed.currentRound.targetCountry.isoCode)
         assertFalse(progressed.currentRound.flagOptions.isEmpty())
+    }
+
+    @Test
+    fun countryRepository_returnsUniqueOptionsAndIncludesCorrectAnswer() {
+        val repository = CountryRepository.fromJson(
+            """
+            [
+              {"name":"Argentina","isoCode":"AR","flagEmoji":"🇦🇷"},
+              {"name":"Brasil","isoCode":"BR","flagEmoji":"🇧🇷"},
+              {"name":"Canadá","isoCode":"CA","flagEmoji":"🇨🇦"},
+              {"name":"Chile","isoCode":"CL","flagEmoji":"🇨🇱"},
+              {"name":"España","isoCode":"ES","flagEmoji":"🇪🇸"}
+            ]
+            """.trimIndent()
+        )
+
+        val question = repository.getRoundCandidates(recentCountryCodes = listOf("AR"), recentWindow = 1)
+
+        assertEquals(4, question.options.size)
+        assertEquals(4, question.options.map { it.isoCode }.toSet().size)
+        assertTrue(question.options.any { it.isoCode == question.correctAnswer.isoCode })
+        assertNotEquals("AR", question.targetCountry.isoCode)
     }
 }

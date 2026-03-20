@@ -32,6 +32,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -46,6 +47,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.flagfights.data.CountryRepository
 import com.flagfights.domain.ConnectionStatus
 import com.flagfights.domain.CountryFlag
 import com.flagfights.domain.GameEngine
@@ -218,7 +220,8 @@ private fun RoomScreen(
 
 @Composable
 private fun GameScreen(onFinish: (Boolean) -> Unit) {
-    val engine = remember { GameEngine() }
+    val context = LocalContext.current
+    val engine = remember { GameEngine(countryRepository = CountryRepository.fromAsset(context)) }
     var matchState by remember { mutableStateOf(engine.createMatch(listOf("Tú", "Rival"))) }
     val currentRound = matchState.currentRound
     val playerState = matchState.players.first { it.playerId == "Tú" }
