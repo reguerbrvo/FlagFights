@@ -8,7 +8,8 @@ enum class ConnectionStatus {
 data class PlayerState(
     val playerId: String,
     val livesRemaining: Int = INITIAL_LIVES,
-    val connectionStatus: ConnectionStatus = ConnectionStatus.CONNECTED
+    val connectionStatus: ConnectionStatus = ConnectionStatus.CONNECTED,
+    val lastSeenAtMillis: Long = 0L
 ) {
     companion object {
         const val INITIAL_LIVES = 2
@@ -40,10 +41,17 @@ enum class MatchStatus {
     FINISHED
 }
 
+enum class MatchEndReason {
+    ELIMINATION,
+    OPPONENT_DISCONNECTED,
+    ALL_PLAYERS_DISCONNECTED
+}
+
 data class MatchState(
     val players: List<PlayerState>,
     val currentRound: Round,
     val winner: String? = null,
     val status: MatchStatus = MatchStatus.IN_PROGRESS,
-    val recentCountries: List<String> = emptyList()
+    val recentCountries: List<String> = emptyList(),
+    val endReason: MatchEndReason? = null
 )
