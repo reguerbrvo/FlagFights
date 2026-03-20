@@ -28,10 +28,13 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -40,15 +43,21 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import kotlinx.coroutines.delay
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.flagfights.data.CountryRepository
 import com.flagfights.domain.ConnectionStatus
 import com.flagfights.domain.CountryFlag
 import com.flagfights.domain.GameEngine
+import com.flagfights.domain.MatchEndReason
 import com.flagfights.domain.MatchStatus
 import com.flagfights.domain.PlayerState
 import com.flagfights.domain.RoundResolution
@@ -101,18 +110,26 @@ private fun FlagFightsNavGraph(navController: NavHostController, padding: Paddin
         }
         composable(Screen.Game.route) {
             GameScreen(
-                onFinish = { playerWon ->
-                    navController.navigate(Screen.Result.createRoute(playerWon))
+                onFinish = { playerWon, endReason ->
+                    navController.navigate(Screen.Result.createRoute(playerWon, endReason))
                 }
             )
         }
         composable(
             route = Screen.Result.route,
-            arguments = listOf(navArgument(Screen.Result.playerWonArg) { type = NavType.BoolType })
+            arguments = listOf(
+                navArgument(Screen.Result.playerWonArg) { type = NavType.BoolType },
+                navArgument(Screen.Result.endReasonArg) { type = NavType.StringType }
+            )
         ) { backStackEntry ->
             val playerWon = backStackEntry.arguments?.getBoolean(Screen.Result.playerWonArg) == true
+            val endReason = backStackEntry.arguments
+                ?.getString(Screen.Result.endReasonArg)
+                ?.takeUnless { it == "NONE" }
+                ?.let(MatchEndReason::valueOf)
             ResultScreen(
                 playerWon = playerWon,
+                endReason = endReason,
                 onBackHome = {
                     navController.navigate(Screen.Home.route) {
                         popUpTo(Screen.Home.route) { inclusive = true }
@@ -218,11 +235,41 @@ private fun RoomScreen(
 
 @Composable
 private fun GameScreen(onFinish: (Boolean) -> Unit) {
-    val engine = remember { GameEngine() }
+    val context = LocalContext.current
+    val engine = remember { GameEngine(countryRepository = CountryRepository.fromAsset(context)) }
     var matchState by remember { mutableStateOf(engine.createMatch(listOf("Tú", "Rival"))) }
     val currentRound = matchState.currentRound
-    val playerState = matchState.players.first { it.playerId == "Tú" }
-    val opponentState = matchState.players.first { it.playerId == "Rival" }
+    val playerState = matchState.players.first { it.playerId == localPlayerId }
+    val opponentState = matchState.players.first { it.playerId == rivalPlayerId }
+
+    LaunchedEffect(matchState.status) {
+        while (matchState.status != MatchStatus.FINISHED) {
+            val now = System.currentTimeMillis()
+            matchState = engine.updateHeartbeat(matchState, localPlayerId, now)
+            matchState = engine.resolveAbandonmentByTimeout(matchState, abandonmentThresholdMillis, now)
+            delay(heartbeatIntervalMillis)
+        }
+    }
+
+    DisposableEffect(lifecycleOwner, matchState.status) {
+        val observer = LifecycleEventObserver { _, event ->
+            val now = System.currentTimeMillis()
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> {
+                    matchState = engine.updateHeartbeat(matchState, localPlayerId, now)
+                }
+                Lifecycle.Event.ON_STOP -> {
+                    matchState = engine.markPlayerDisconnected(matchState, localPlayerId, now)
+                }
+                else -> Unit
+            }
+        }
+
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
 
     ScreenContainer(title = "Partida", subtitle = "Selecciona la bandera correcta antes de quedarte sin vidas.") {
         Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -239,6 +286,26 @@ private fun GameScreen(onFinish: (Boolean) -> Unit) {
             ) {
                 LivesCard(name = playerState.playerId, lives = playerState.livesRemaining, modifier = Modifier.weight(1f))
                 LivesCard(name = opponentState.playerId, lives = opponentState.livesRemaining, modifier = Modifier.weight(1f))
+            }
+            InfoCard(title = "Presencia") {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    PlayerStatusRow(player = playerState)
+                    PlayerStatusRow(player = opponentState)
+                    Text(
+                        text = if (matchState.endReason == MatchEndReason.OPPONENT_DISCONNECTED) {
+                            "La partida terminó por desconexión confirmada del rival."
+                        } else {
+                            "Se mantiene un heartbeat periódico y se declara abandono tras ${abandonmentThresholdMillis / 1000} segundos sin actividad."
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    OutlinedButton(onClick = {
+                        matchState = engine.markPlayerDisconnected(matchState, rivalPlayerId)
+                    }) {
+                        Text("Simular abandono del rival")
+                    }
+                }
             }
             Text(
                 text = when (currentRound.resolution) {
@@ -275,13 +342,13 @@ private fun GameScreen(onFinish: (Boolean) -> Unit) {
             Button(
                 onClick = {
                     if (matchState.status == MatchStatus.FINISHED) {
-                        onFinish(matchState.winner == playerState.playerId)
+                        onFinish(matchState.winner == playerState.playerId, matchState.endReason)
                     } else {
                         matchState = engine.advanceRound(matchState)
                     }
                 },
                 modifier = Modifier.fillMaxWidth(),
-                enabled = currentRound.resolution != RoundResolution.PENDING
+                enabled = matchState.status == MatchStatus.FINISHED || currentRound.resolution != RoundResolution.PENDING
             ) {
                 Text(if (matchState.status == MatchStatus.FINISHED) "Ver resultado" else "Siguiente ronda")
             }
@@ -292,13 +359,23 @@ private fun GameScreen(onFinish: (Boolean) -> Unit) {
 @Composable
 private fun ResultScreen(
     playerWon: Boolean,
+    endReason: MatchEndReason?,
     onBackHome: () -> Unit
 ) {
     val title = if (playerWon) "¡Ganaste!" else "Has perdido"
-    val description = if (playerWon) {
-        "Sobreviviste a la partida acertando más banderas que tu rival."
-    } else {
-        "Te quedaste sin vidas. Vuelve al inicio para crear otra partida."
+    val description = when {
+        endReason == MatchEndReason.OPPONENT_DISCONNECTED && playerWon -> {
+            "Victoria por desconexión del rival. Se detectó abandono y se te marcó como ganador automáticamente."
+        }
+        endReason == MatchEndReason.OPPONENT_DISCONNECTED && !playerWon -> {
+            "Derrota por desconexión propia. Tu rival fue marcado como ganador automático."
+        }
+        playerWon -> {
+            "Sobreviviste a la partida acertando más banderas que tu rival."
+        }
+        else -> {
+            "Te quedaste sin vidas. Vuelve al inicio para crear otra partida."
+        }
     }
 
     ScreenContainer(title = "Resultado", subtitle = "Resumen final de la partida.") {
@@ -485,8 +562,9 @@ private sealed class Screen(val route: String) {
 
     data object Game : Screen("game")
 
-    data object Result : Screen("result/{playerWon}") {
+    data object Result : Screen("result/{playerWon}/{endReason}") {
         const val playerWonArg = "playerWon"
-        fun createRoute(playerWon: Boolean) = "result/$playerWon"
+        const val endReasonArg = "endReason"
+        fun createRoute(playerWon: Boolean, endReason: MatchEndReason?) = "result/$playerWon/${endReason?.name ?: "NONE"}"
     }
 }
