@@ -62,6 +62,12 @@ import com.flagfights.domain.MatchStatus
 import com.flagfights.domain.PlayerState
 import com.flagfights.domain.RoundResolution
 
+
+private const val LOCAL_PLAYER_ID = "Tú"
+private const val RIVAL_PLAYER_ID = "Rival"
+private const val HEARTBEAT_INTERVAL_MILLIS = 1_000L
+private const val ABANDONMENT_THRESHOLD_MILLIS = 5_000L
+
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -234,20 +240,21 @@ private fun RoomScreen(
 }
 
 @Composable
-private fun GameScreen(onFinish: (Boolean) -> Unit) {
+private fun GameScreen(onFinish: (Boolean, MatchEndReason?) -> Unit) {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val engine = remember { GameEngine(countryRepository = CountryRepository.fromAsset(context)) }
-    var matchState by remember { mutableStateOf(engine.createMatch(listOf("Tú", "Rival"))) }
+    var matchState by remember { mutableStateOf(engine.createMatch(listOf(LOCAL_PLAYER_ID, RIVAL_PLAYER_ID))) }
     val currentRound = matchState.currentRound
-    val playerState = matchState.players.first { it.playerId == localPlayerId }
-    val opponentState = matchState.players.first { it.playerId == rivalPlayerId }
+    val playerState = matchState.players.first { it.playerId == LOCAL_PLAYER_ID }
+    val opponentState = matchState.players.first { it.playerId == RIVAL_PLAYER_ID }
 
     LaunchedEffect(matchState.status) {
         while (matchState.status != MatchStatus.FINISHED) {
             val now = System.currentTimeMillis()
-            matchState = engine.updateHeartbeat(matchState, localPlayerId, now)
-            matchState = engine.resolveAbandonmentByTimeout(matchState, abandonmentThresholdMillis, now)
-            delay(heartbeatIntervalMillis)
+            matchState = engine.updateHeartbeat(matchState, LOCAL_PLAYER_ID, now)
+            matchState = engine.resolveAbandonmentByTimeout(matchState, ABANDONMENT_THRESHOLD_MILLIS, now)
+            delay(HEARTBEAT_INTERVAL_MILLIS)
         }
     }
 
@@ -256,10 +263,10 @@ private fun GameScreen(onFinish: (Boolean) -> Unit) {
             val now = System.currentTimeMillis()
             when (event) {
                 Lifecycle.Event.ON_RESUME -> {
-                    matchState = engine.updateHeartbeat(matchState, localPlayerId, now)
+                    matchState = engine.updateHeartbeat(matchState, LOCAL_PLAYER_ID, now)
                 }
                 Lifecycle.Event.ON_STOP -> {
-                    matchState = engine.markPlayerDisconnected(matchState, localPlayerId, now)
+                    matchState = engine.markPlayerDisconnected(matchState, LOCAL_PLAYER_ID, now)
                 }
                 else -> Unit
             }
@@ -295,13 +302,13 @@ private fun GameScreen(onFinish: (Boolean) -> Unit) {
                         text = if (matchState.endReason == MatchEndReason.OPPONENT_DISCONNECTED) {
                             "La partida terminó por desconexión confirmada del rival."
                         } else {
-                            "Se mantiene un heartbeat periódico y se declara abandono tras ${abandonmentThresholdMillis / 1000} segundos sin actividad."
+                            "Se mantiene un heartbeat periódico y se declara abandono tras ${ABANDONMENT_THRESHOLD_MILLIS / 1000} segundos sin actividad."
                         },
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     OutlinedButton(onClick = {
-                        matchState = engine.markPlayerDisconnected(matchState, rivalPlayerId)
+                        matchState = engine.markPlayerDisconnected(matchState, RIVAL_PLAYER_ID)
                     }) {
                         Text("Simular abandono del rival")
                     }
