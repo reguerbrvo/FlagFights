@@ -17,6 +17,7 @@ data class PlayerState(
 
 data class CountryFlag(
     val countryName: String,
+    val isoCode: String,
     val flagEmoji: String
 )
 
