@@ -53,3 +53,32 @@ Si tienes el SDK de Android y Gradle configurados, puedes compilar con:
 - Incorporar ViewModels y capa de dominio/datos.
 - Crear componentes reutilizables para tablero, puntajes y banderas.
 - Agregar pruebas UI y unitarias.
+
+
+## Capa de red 1v1 con Firestore
+
+Se añadió una base para multijugador 1 contra 1 usando **Firebase Firestore** con una colección `rooms/{roomCode}`.
+
+### Esquema remoto propuesto
+
+- `roomCode`: código compartible de 6 caracteres.
+- `lifecycle`: `WAITING`, `READY`, `PLAYING` o `FINISHED`.
+- `maxPlayers`: límite fijo en `2`.
+- `players[]`: lista de jugadores con `playerId`, `displayName`, `isHost`, `isReady`, `livesRemaining` y `connected`.
+- `currentRound`: ronda activa con país objetivo, opciones, respuestas por jugador y resolución por jugador.
+- `finalResult`: ganador final y motivo de cierre.
+- `lastEvent`: último evento útil para depuración/UI.
+
+### Clases añadidas
+
+- `RoomCodeGenerator`: genera códigos únicos y compartibles.
+- `MatchRepository`: contrato para crear sala, unirse, escuchar cambios, marcar listo, iniciar, avanzar ronda y enviar respuestas.
+- `FirestoreMatchRepository`: implementación con transacciones y listeners en tiempo real mediante `addSnapshotListener`.
+- `RoomViewModel`: ejemplo de capa de presentación que expone el estado remoto como `StateFlow` para Compose.
+
+### Flujo recomendado en UI
+
+1. Crear o unirse a una sala usando `createRoom` / `joinRoom`.
+2. Vincular la pantalla a `observeRoom(roomCode)` o a `RoomViewModel.roomState`.
+3. Reflejar en la UI los cambios de jugadores conectados, listos, inicio, respuestas, vidas y resultado final.
+4. Invocar `startMatch` solo cuando haya exactamente 2 jugadores conectados y listos.
