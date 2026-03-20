@@ -3,26 +3,49 @@ package com.flagfights
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -51,35 +74,40 @@ private fun FlagFightsNavGraph(navController: NavHostController, padding: Paddin
         modifier = Modifier.padding(padding)
     ) {
         composable(Screen.Home.route) {
-            ScreenTemplate(
-                title = "Inicio",
-                description = "Pantalla principal para iniciar una partida o revisar el estado general.",
-                actionLabel = "Ir a la sala de espera",
-                onAction = { navController.navigate(Screen.WaitingRoom.route) }
+            HomeScreen(
+                onCreateRoom = { navController.navigate(Screen.WaitingRoom.createRoute("ABCD")) },
+                onJoinRoom = { roomCode ->
+                    val normalizedCode = roomCode.ifBlank { "ABCD" }.uppercase()
+                    navController.navigate(Screen.WaitingRoom.createRoute(normalizedCode))
+                }
             )
         }
-        composable(Screen.WaitingRoom.route) {
-            ScreenTemplate(
-                title = "Sala de espera",
-                description = "Espacio para reunir jugadores, confirmar equipos y esperar el comienzo.",
-                actionLabel = "Comenzar juego",
-                onAction = { navController.navigate(Screen.Game.route) }
+        composable(
+            route = Screen.WaitingRoom.route,
+            arguments = listOf(navArgument(Screen.WaitingRoom.roomCodeArg) { type = NavType.StringType })
+        ) { backStackEntry ->
+            val roomCode = backStackEntry.arguments?.getString(Screen.WaitingRoom.roomCodeArg).orEmpty()
+            RoomScreen(
+                roomCode = roomCode,
+                onStartGame = { navController.navigate(Screen.Game.route) },
+                onBackHome = { navController.popBackStack(Screen.Home.route, false) }
             )
         }
         composable(Screen.Game.route) {
-            ScreenTemplate(
-                title = "Juego",
-                description = "Vista principal del enfrentamiento con preguntas, banderas y puntaje.",
-                actionLabel = "Ver resultado",
-                onAction = { navController.navigate(Screen.Result.route) }
+            GameScreen(
+                onFinish = { playerWon ->
+                    navController.navigate(Screen.Result.createRoute(playerWon))
+                }
             )
         }
-        composable(Screen.Result.route) {
-            ScreenTemplate(
-                title = "Resultado",
-                description = "Resumen final con ganador, métricas de la partida y opción para reiniciar.",
-                actionLabel = "Volver al inicio",
-                onAction = {
+        composable(
+            route = Screen.Result.route,
+            arguments = listOf(navArgument(Screen.Result.playerWonArg) { type = NavType.BoolType })
+        ) { backStackEntry ->
+            val playerWon = backStackEntry.arguments?.getBoolean(Screen.Result.playerWonArg) == true
+            ResultScreen(
+                playerWon = playerWon,
+                onBackHome = {
                     navController.navigate(Screen.Home.route) {
                         popUpTo(Screen.Home.route) { inclusive = true }
                     }
@@ -90,23 +118,187 @@ private fun FlagFightsNavGraph(navController: NavHostController, padding: Paddin
 }
 
 @Composable
-private fun ScreenTemplate(
-    title: String,
-    description: String,
-    actionLabel: String,
-    onAction: () -> Unit
+private fun HomeScreen(
+    onCreateRoom: () -> Unit,
+    onJoinRoom: (String) -> Unit
 ) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(24.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Card(modifier = Modifier.fillMaxWidth()) {
+    var roomCode by rememberSaveable { mutableStateOf("") }
+
+    ScreenContainer(title = "FlagFights", subtitle = "Prepara una partida rápida entre dos jugadores.") {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+        ) {
             Column(
-                modifier = Modifier.padding(24.dp),
+                modifier = Modifier.padding(20.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                Text(
+                    text = "Inicio",
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold
+                )
+                Button(
+                    onClick = onCreateRoom,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Crear sala")
+                }
+                OutlinedTextField(
+                    value = roomCode,
+                    onValueChange = { roomCode = it.take(6).uppercase() },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    label = { Text("Código de sala") },
+                    placeholder = { Text("Ej. ABCD") }
+                )
+                OutlinedButton(
+                    onClick = { onJoinRoom(roomCode) },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Unirse a sala")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RoomScreen(
+    roomCode: String,
+    onStartGame: () -> Unit,
+    onBackHome: () -> Unit
+) {
+    val players = listOf(
+        PlayerStatus(name = "Tú", isConnected = true, isReady = true),
+        PlayerStatus(name = "Rival", isConnected = true, isReady = false)
+    )
+
+    ScreenContainer(title = "Sala de espera", subtitle = "Comparte el código y confirma el estado de ambos jugadores.") {
+        Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            InfoCard(title = "Código de sala") {
+                Text(
+                    text = roomCode,
+                    style = MaterialTheme.typography.displaySmall,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = androidx.compose.ui.unit.TextUnit.Unspecified,
+                    modifier = Modifier.fillMaxWidth(),
+                    textAlign = TextAlign.Center
+                )
+            }
+            InfoCard(title = "Jugadores") {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    players.forEach { player ->
+                        PlayerStatusRow(player = player)
+                    }
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedButton(
+                    onClick = onBackHome,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text("Volver")
+                }
+                Button(
+                    onClick = onStartGame,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text("Iniciar partida")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun GameScreen(onFinish: (Boolean) -> Unit) {
+    val options = remember {
+        listOf(
+            FlagOption("Argentina", "🇦🇷"),
+            FlagOption("Japón", "🇯🇵"),
+            FlagOption("Italia", "🇮🇹"),
+            FlagOption("Canadá", "🇨🇦")
+        )
+    }
+    var selectedCountry by remember { mutableStateOf<String?>(null) }
+    val playerLives = if (selectedCountry == "Japón") 3 else 2
+    val opponentLives = if (selectedCountry == null) 3 else 1
+
+    ScreenContainer(title = "Partida", subtitle = "Selecciona la bandera correcta antes de quedarte sin vidas.") {
+        Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            InfoCard(title = "País objetivo") {
+                Text(
+                    text = "Japón",
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                LivesCard(name = "Tú", lives = playerLives, modifier = Modifier.weight(1f))
+                LivesCard(name = "Rival", lives = opponentLives, modifier = Modifier.weight(1f))
+            }
+            Text(
+                text = "Elige una bandera",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold
+            )
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                options.chunked(2).forEach { rowOptions ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        rowOptions.forEach { option ->
+                            FlagOptionCard(
+                                option = option,
+                                isSelected = selectedCountry == option.country,
+                                modifier = Modifier.weight(1f),
+                                onClick = { selectedCountry = option.country }
+                            )
+                        }
+                        repeat(2 - rowOptions.size) {
+                            Spacer(modifier = Modifier.weight(1f))
+                        }
+                    }
+                }
+            }
+            Button(
+                onClick = { onFinish(selectedCountry == "Japón") },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Finalizar ronda")
+            }
+        }
+    }
+}
+
+@Composable
+private fun ResultScreen(
+    playerWon: Boolean,
+    onBackHome: () -> Unit
+) {
+    val title = if (playerWon) "¡Ganaste!" else "Has perdido"
+    val description = if (playerWon) {
+        "Identificaste la bandera correcta y conservaste más vidas que tu rival."
+    } else {
+        "Tu rival mantuvo más vidas. Vuelve al inicio para crear otra partida."
+    }
+
+    ScreenContainer(title = "Resultado", subtitle = "Resumen final de la partida.") {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(
+                containerColor = if (playerWon) Color(0xFFDFF7E2) else Color(0xFFFFE1E1)
+            )
+        ) {
+            Column(
+                modifier = Modifier.padding(20.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Text(
                     text = title,
@@ -115,19 +307,183 @@ private fun ScreenTemplate(
                 )
                 Text(
                     text = description,
-                    style = MaterialTheme.typography.bodyLarge
+                    style = MaterialTheme.typography.bodyLarge,
+                    textAlign = TextAlign.Center
                 )
-                Button(onClick = onAction) {
-                    Text(text = actionLabel)
+                Button(onClick = onBackHome) {
+                    Text("Volver al inicio")
                 }
             }
         }
     }
 }
 
+@Composable
+private fun ScreenContainer(
+    title: String,
+    subtitle: String,
+    content: @Composable () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(20.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.headlineLarge,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        content()
+    }
+}
+
+@Composable
+private fun InfoCard(
+    title: String,
+    content: @Composable () -> Unit
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+            content()
+        }
+    }
+}
+
+@Composable
+private fun PlayerStatusRow(player: PlayerStatus) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(text = player.name, style = MaterialTheme.typography.titleMedium)
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            StatusChip(
+                label = if (player.isConnected) "Conectado" else "Desconectado",
+                active = player.isConnected
+            )
+            StatusChip(
+                label = if (player.isReady) "Listo" else "Esperando",
+                active = player.isReady
+            )
+        }
+    }
+}
+
+@Composable
+private fun StatusChip(label: String, active: Boolean) {
+    Surface(
+        shape = RoundedCornerShape(50),
+        color = if (active) Color(0xFFDCFCE7) else Color(0xFFFEE2E2)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(8.dp)
+                    .clip(CircleShape)
+                    .background(if (active) Color(0xFF16A34A) else Color(0xFFDC2626))
+            )
+            Text(text = label, style = MaterialTheme.typography.labelLarge)
+        }
+    }
+}
+
+@Composable
+private fun LivesCard(name: String, lives: Int, modifier: Modifier = Modifier) {
+    Card(modifier = modifier) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(text = name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                repeat(3) { index ->
+                    Text(
+                        text = if (index < lives) "❤️" else "🖤",
+                        style = MaterialTheme.typography.headlineSmall
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FlagOptionCard(
+    option: FlagOption,
+    isSelected: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    Card(
+        modifier = modifier
+            .border(
+                width = 2.dp,
+                color = if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent,
+                shape = RoundedCornerShape(16.dp)
+            )
+            .clickable(onClick = onClick),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(text = option.emoji, style = MaterialTheme.typography.displaySmall)
+            Text(text = option.country, style = MaterialTheme.typography.titleMedium)
+        }
+    }
+}
+
+private data class PlayerStatus(
+    val name: String,
+    val isConnected: Boolean,
+    val isReady: Boolean
+)
+
+private data class FlagOption(
+    val country: String,
+    val emoji: String
+)
+
 private sealed class Screen(val route: String) {
     data object Home : Screen("home")
-    data object WaitingRoom : Screen("waiting_room")
+
+    data object WaitingRoom : Screen("room/{roomCode}") {
+        const val roomCodeArg = "roomCode"
+        fun createRoute(roomCode: String) = "room/$roomCode"
+    }
+
     data object Game : Screen("game")
-    data object Result : Screen("result")
+
+    data object Result : Screen("result/{playerWon}") {
+        const val playerWonArg = "playerWon"
+        fun createRoute(playerWon: Boolean) = "result/$playerWon"
+    }
 }
