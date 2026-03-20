@@ -13,11 +13,16 @@ class GameEngine(
         }
     }
 
-    fun createMatch(playerIds: List<String>): MatchState {
+    fun createMatch(playerIds: List<String>, createdAtMillis: Long = System.currentTimeMillis()): MatchState {
         require(playerIds.isNotEmpty()) { "A match requires at least one player." }
 
         val players = playerIds.map { playerId ->
-            PlayerState(playerId = playerId, livesRemaining = initialLives)
+            PlayerState(
+                playerId = playerId,
+                livesRemaining = initialLives,
+                connectionStatus = ConnectionStatus.CONNECTED,
+                lastSeenAtMillis = createdAtMillis
+            )
         }
 
         return MatchState(
@@ -80,6 +85,82 @@ class GameEngine(
             currentRound = resolvedRound,
             recentCountries = updateRecentCountries(matchState, matchState.currentRound.targetCountry.isoCode)
         )
+    }
+
+    fun updateHeartbeat(matchState: MatchState, playerId: String, heartbeatAtMillis: Long = System.currentTimeMillis()): MatchState {
+        if (matchState.status == MatchStatus.FINISHED) {
+            return matchState
+        }
+
+        return matchState.copy(
+            players = matchState.players.map { player ->
+                if (player.playerId == playerId) {
+                    player.copy(
+                        connectionStatus = ConnectionStatus.CONNECTED,
+                        lastSeenAtMillis = heartbeatAtMillis
+                    )
+                } else {
+                    player
+                }
+            }
+        )
+    }
+
+    fun markPlayerDisconnected(
+        matchState: MatchState,
+        playerId: String,
+        disconnectedAtMillis: Long = System.currentTimeMillis()
+    ): MatchState {
+        if (matchState.status == MatchStatus.FINISHED) {
+            return matchState
+        }
+
+        val updatedPlayers = matchState.players.map { player ->
+            if (player.playerId == playerId) {
+                player.copy(
+                    connectionStatus = ConnectionStatus.DISCONNECTED,
+                    lastSeenAtMillis = disconnectedAtMillis
+                )
+            } else {
+                player
+            }
+        }
+
+        val disconnectedPlayers = updatedPlayers.filter { it.connectionStatus == ConnectionStatus.DISCONNECTED }
+        val connectedPlayers = updatedPlayers.filter { it.connectionStatus == ConnectionStatus.CONNECTED }
+
+        val endReason = if (connectedPlayers.isEmpty()) {
+            MatchEndReason.ALL_PLAYERS_DISCONNECTED
+        } else {
+            MatchEndReason.OPPONENT_DISCONNECTED
+        }
+
+        return matchState.copy(
+            players = updatedPlayers,
+            winner = connectedPlayers.singleOrNull()?.playerId,
+            status = MatchStatus.FINISHED,
+            endReason = endReason
+        )
+    }
+
+    fun resolveAbandonmentByTimeout(
+        matchState: MatchState,
+        timeoutThresholdMillis: Long,
+        nowMillis: Long = System.currentTimeMillis()
+    ): MatchState {
+        if (matchState.status == MatchStatus.FINISHED) {
+            return matchState
+        }
+
+        val timedOutPlayers = matchState.players.filter { player ->
+            nowMillis - player.lastSeenAtMillis >= timeoutThresholdMillis
+        }
+
+        if (timedOutPlayers.size != 1) {
+            return matchState
+        }
+
+        return markPlayerDisconnected(matchState, timedOutPlayers.single().playerId, nowMillis)
     }
 
     fun advanceRound(matchState: MatchState): MatchState {
