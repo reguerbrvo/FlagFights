@@ -76,14 +76,16 @@ class GameEngine(
                 currentRound = resolvedRound,
                 winner = winner,
                 status = MatchStatus.FINISHED,
-                recentCountries = updateRecentCountries(matchState, matchState.currentRound.targetCountry.isoCode)
+                recentCountries = updateRecentCountries(matchState, matchState.currentRound.targetCountry.isoCode),
+                endReason = MatchEndReason.ELIMINATION
             )
         }
 
         return matchState.copy(
             players = updatedPlayers,
             currentRound = resolvedRound,
-            recentCountries = updateRecentCountries(matchState, matchState.currentRound.targetCountry.isoCode)
+            recentCountries = updateRecentCountries(matchState, matchState.currentRound.targetCountry.isoCode),
+            endReason = null
         )
     }
 
